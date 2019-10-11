@@ -165,7 +165,8 @@ open class SSLSecurity : SSLTrustValidator {
             let serverCerts = certificateChain(trust)
             var collect = [SecCertificate]()
             for cert in certs {
-                collect.append(SecCertificateCreateWithData(nil,cert as CFData)!)
+                guard let certificate = SecCertificateCreateWithData(nil,cert as CFData) else { fatalError("nil certificate") }
+                collect.append(certificate)
             }
             SecTrustSetAnchorCertificates(trust,collect as NSArray)
             var result: SecTrustResultType = .unspecified
@@ -231,8 +232,8 @@ open class SSLSecurity : SSLTrustValidator {
     public func certificateChain(_ trust: SecTrust) -> [Data] {
         let certificates = (0..<SecTrustGetCertificateCount(trust)).reduce([Data]()) { (certificates: [Data], index: Int) -> [Data] in
             var certificates = certificates
-            let cert = SecTrustGetCertificateAtIndex(trust, index)
-            certificates.append(SecCertificateCopyData(cert!) as Data)
+            guard let cert = SecTrustGetCertificateAtIndex(trust, index) else { fatalError("nil cert") }
+            certificates.append(SecCertificateCopyData(cert) as Data)
             return certificates
         }
         
@@ -250,8 +251,8 @@ open class SSLSecurity : SSLTrustValidator {
         let policy = SecPolicyCreateBasicX509()
         let keys = (0..<SecTrustGetCertificateCount(trust)).reduce([SecKey]()) { (keys: [SecKey], index: Int) -> [SecKey] in
             var keys = keys
-            let cert = SecTrustGetCertificateAtIndex(trust, index)
-            if let key = extractPublicKey(cert!, policy: policy) {
+            guard let cert = SecTrustGetCertificateAtIndex(trust, index) else { fatalError("nil cert") }
+            if let key = extractPublicKey(cert, policy: policy) {
                 keys.append(key)
             }
             

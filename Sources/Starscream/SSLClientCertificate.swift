@@ -83,7 +83,8 @@ public class SSLClientCertificate {
             guard copyStatus == errSecSuccess else {
                 throw SSLClientCertificateError(errorDescription: "(Starscream) Error during 'SecIdentityCopyCertificate', see 'SecBase.h' - OSStatus: \(copyStatus)")
             }
-            self.streamSSLCertificates = NSArray(objects: identity, identityCertificate!)
+            guard let unwrappedIdentityCertificate = identityCertificate else { fatalError("nil identityCertificate") }
+            self.streamSSLCertificates = NSArray(objects: identity, unwrappedIdentityCertificate)
         } catch {
             throw error
         }

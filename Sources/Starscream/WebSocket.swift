@@ -146,16 +146,19 @@ open class FoundationStream : NSObject, WSStream, StreamDelegate  {
     public func connect(url: URL, port: Int, timeout: TimeInterval, ssl: SSLSettings, completion: @escaping ((Error?) -> Void)) {
         var readStream: Unmanaged<CFReadStream>?
         var writeStream: Unmanaged<CFWriteStream>?
-        let h = url.host! as NSString
+        guard let h = url.host as NSString? else { fatalError("nil url.host") }
         CFStreamCreatePairWithSocketToHost(nil, h, UInt32(port), &readStream, &writeStream)
-        inputStream = readStream!.takeRetainedValue()
-        outputStream = writeStream!.takeRetainedValue()
+        guard let unwrappedReadStream = readStream else { fatalError("nil readStream") }
+        inputStream = unwrappedReadStream.takeRetainedValue()
+        guard let unwrappedWriteStream = writeStream else { fatalError("nil writeStream") }
+        outputStream = unwrappedWriteStream.takeRetainedValue()
 
         #if os(watchOS) //watchOS us unfortunately is missing the kCFStream properties to make this work
         #else
             if enableSOCKSProxy {
                 let proxyDict = CFNetworkCopySystemProxySettings()
-                let socksConfig = CFDictionaryCreateMutableCopy(nil, 0, proxyDict!.takeRetainedValue())
+                guard let unwrappedProxyDict = proxyDict else { fatalError("nil proxyDict") }
+                let socksConfig = CFDictionaryCreateMutableCopy(nil, 0, unwrappedProxyDict.takeRetainedValue())
                 let propertyKey = CFStreamPropertyKey(rawValue: kCFStreamPropertySOCKSProxy)
                 CFWriteStreamSetProperty(outputStream, propertyKey, socksConfig)
                 CFReadStreamSetProperty(inputStream, propertyKey, socksConfig)
@@ -243,8 +246,8 @@ open class FoundationStream : NSObject, WSStream, StreamDelegate  {
     
     public func read() -> Data? {
         guard let stream = inputStream else {return nil}
-        let buf = NSMutableData(capacity: BUFFER_MAX)
-        let buffer = UnsafeMutableRawPointer(mutating: buf!.bytes).assumingMemoryBound(to: UInt8.self)
+        guard let buf = NSMutableData(capacity: BUFFER_MAX) else { fatalError("nil buf") }
+        let buffer = UnsafeMutableRawPointer(mutating: buf.bytes).assumingMemoryBound(to: UInt8.self)
         let length = stream.read(buffer, maxLength: BUFFER_MAX)
         if length < 1 {
             return nil
@@ -425,7 +428,10 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
         return isConnected
     }
     public var request: URLRequest //this is only public to allow headers, timeout, etc to be modified on reconnect
-    public var currentURL: URL { return request.url! }
+    public var currentURL: URL {
+        guard let requestURL = request.url else { fatalError("nil request.url") }
+        return requestURL
+    }
 
     public var respondToPingWithPong: Bool = true
 
@@ -540,7 +546,8 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
      */
     open func write(string: String, completion: (() -> ())? = nil) {
         guard isConnected else { return }
-        dequeueWrite(string.data(using: String.Encoding.utf8)!, code: .textFrame, writeCompletion: completion)
+        guard let data = string.data(using: .utf8) else { fatalError("nil string.data") }
+        dequeueWrite(data, code: .textFrame, writeCompletion: completion)
     }
 
     /**
@@ -581,7 +588,9 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
         guard let url = request.url else {return}
         var port = url.port
         if port == nil {
-            if supportedSSLSchemes.contains(url.scheme!) {
+
+            guard let urlScheme = url.scheme else { fatalError("nil url.scheme") }
+            if supportedSSLSchemes.contains(urlScheme) {
                 port = 443
             } else {
                 port = 80
@@ -597,7 +606,9 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
             let val = "permessage-deflate; client_max_window_bits; server_max_window_bits=15"
             request.setValue(val, forHTTPHeaderField: headerWSExtensionName)
         }
-        let hostValue = request.allHTTPHeaderFields?[headerWSHostName] ?? "\(url.host!):\(port!)"
+        guard let host = url.host else { fatalError("nil host") }
+        guard let urlPort = url.port else { fatalError("nil port") }
+        let hostValue = request.allHTTPHeaderFields?[headerWSHostName] ?? "\(host):\(urlPort)"
         request.setValue(hostValue, forHTTPHeaderField: headerWSHostName)
 
         var path = url.absoluteString
@@ -620,7 +631,9 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
         }
         httpBody += "\r\n"
         
-        initStreamsWithData(httpBody.data(using: .utf8)!, Int(port!))
+        guard let httpBodyData = httpBody.data(using: .utf8) else { fatalError("nil httpBody.data") }
+        guard let unwrappedPort = port else { fatalError("nil port") }
+        initStreamsWithData(httpBodyData, Int(unwrappedPort))
         advancedDelegate?.websocketHttpUpgrade(socket: self, request: httpBody)
     }
 
@@ -632,11 +645,12 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
         let seed = 16
         for _ in 0..<seed {
             let uni = UnicodeScalar(UInt32(97 + arc4random_uniform(25)))
-            key += "\(Character(uni!))"
+            guard let unicode = uni else { fatalError("nil uni") }
+            key += "\(Character(unicode))"
         }
         let data = key.data(using: String.Encoding.utf8)
-        let baseKey = data?.base64EncodedString(options: NSData.Base64EncodingOptions(rawValue: 0))
-        return baseKey!
+        guard let baseKey = data?.base64EncodedString(options: NSData.Base64EncodingOptions(rawValue: 0)) else { fatalError("nil baseKey") }
+        return baseKey
     }
 
     /**
@@ -651,8 +665,9 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
         }
         // Disconnect and clean up any existing streams before setting up a new pair
         disconnectStream(nil, runDelegate: false)
-
-        let useSSL = supportedSSLSchemes.contains(url.scheme!)
+        
+        guard let scheme = url.scheme else { fatalError("nil url.scheme") }
+        let useSSL = supportedSSLSchemes.contains(scheme)
         #if os(Linux)
             let settings = SSLSettings(useSSL: useSSL,
                                        disableCertValidation: disableSSLCertValidation,
@@ -1118,19 +1133,23 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
                 }
                 isNew = true
                 response = WSResponse()
-                response!.code = receivedOpcode!
-                response!.bytesLeft = Int(dataLength)
-                response!.buffer = NSMutableData(data: data)
+                guard let unwrappedResponse = response else { fatalError("nil response") }
+                guard let unwrappedReceivedOpcode = receivedOpcode else { fatalError("nil receivedOpcode") }
+                unwrappedResponse.code = unwrappedReceivedOpcode
+                unwrappedResponse.bytesLeft = Int(dataLength)
+                unwrappedResponse.buffer = NSMutableData(data: data)
             } else {
+                guard let unwrappedResponse = response else { fatalError("nil response") }
                 if receivedOpcode == .continueFrame {
-                    response!.bytesLeft = Int(dataLength)
+                    unwrappedResponse.bytesLeft = Int(dataLength)
                 } else {
                     let errCode = CloseCode.protocolError.rawValue
                     doDisconnect(WSError(type: .protocolError, message: "second and beyond of fragment message must be a continue frame", code: Int(errCode)))
                     writeError(errCode)
                     return emptyBuffer
                 }
-                response!.buffer!.append(data)
+                guard let unwrappedResponseBuffer = unwrappedResponse.buffer else { fatalError("nil response.buffer") }
+                unwrappedResponseBuffer.append(data)
             }
             if let response = response {
                 response.bytesLeft -= Int(len)
@@ -1167,11 +1186,12 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
         if response.isFin && response.bytesLeft <= 0 {
             if response.code == .ping {
                 if respondToPingWithPong {
-                    let data = response.buffer! // local copy so it is perverse for writing
+                    guard let data = response.buffer else { fatalError("nil response.buffer") } // local copy so it is perverse for writing
                     dequeueWrite(data as Data, code: .pong)
                 }
             } else if response.code == .textFrame {
-                guard let str = String(data: response.buffer! as Data, encoding: .utf8) else {
+                guard let responseBuffer = response.buffer else { fatalError("nil response.buffer") }
+                guard let str = String(data: responseBuffer as Data, encoding: .utf8) else {
                     writeError(CloseCode.encoding.rawValue)
                     return false
                 }
@@ -1185,7 +1205,7 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
                 }
             } else if response.code == .binaryFrame {
                 if canDispatch {
-                    let data = response.buffer! // local copy so it is perverse for writing
+                    guard let data = response.buffer else { fatalError("nil response.buffer") } // local copy so it is perverse for writing
                     callbackQueue.async { [weak self] in
                         guard let self = self else { return }
                         self.onData?(data as Data)
@@ -1204,8 +1224,8 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
      Write an error to the socket
      */
     private func writeError(_ code: UInt16) {
-        let buf = NSMutableData(capacity: MemoryLayout<UInt16>.size)
-        let buffer = UnsafeMutableRawPointer(mutating: buf!.bytes).assumingMemoryBound(to: UInt8.self)
+        guard let buf = NSMutableData(capacity: MemoryLayout<UInt16>.size) else { fatalError("nil buf") }
+        let buffer = UnsafeMutableRawPointer(mutating: buf.bytes).assumingMemoryBound(to: UInt8.self)
         WebSocket.writeUint16(buffer, offset: 0, value: code)
         dequeueWrite(Data(bytes: buffer, count: MemoryLayout<UInt16>.size), code: .connectionClose)
     }
@@ -1234,8 +1254,8 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
                 }
             }
             let dataLength = data.count
-            let frame = NSMutableData(capacity: dataLength + self.MaxFrameSize)
-            let buffer = UnsafeMutableRawPointer(frame!.mutableBytes).assumingMemoryBound(to: UInt8.self)
+            guard let frame = NSMutableData(capacity: dataLength + self.MaxFrameSize) else { fatalError("nil frame") }
+            let buffer = UnsafeMutableRawPointer(frame.mutableBytes).assumingMemoryBound(to: UInt8.self)
             buffer[0] = firstByte
             if dataLength < 126 {
                 buffer[1] = CUnsignedChar(dataLength)
@@ -1264,7 +1284,7 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
                     break
                 }
                 let stream = self.stream
-                let writeBuffer = UnsafeRawPointer(frame!.bytes+total).assumingMemoryBound(to: UInt8.self)
+                let writeBuffer = UnsafeRawPointer(frame.bytes+total).assumingMemoryBound(to: UInt8.self)
                 let len = stream.write(data: Data(bytes: writeBuffer, count: offset-total))
                 if len <= 0 {
                     self.doDisconnect(WSError(type: .outputStreamWriteError, message: "output stream had an error during write", code: 0))
@@ -1321,7 +1341,7 @@ open class WebSocket : NSObject, StreamDelegate, WebSocketClient, WSStreamDelega
 
 private extension String {
     func sha1Base64() -> String {
-        let data = self.data(using: String.Encoding.utf8)!
+        guard let data = self.data(using: String.Encoding.utf8) else { fatalError("nil data") }
         var digest = [UInt8](repeating: 0, count:Int(CC_SHA1_DIGEST_LENGTH))
         data.withUnsafeBytes { _ = CC_SHA1($0, CC_LONG(data.count), &digest) }
         return Data(bytes: digest).base64EncodedString()
@@ -1331,7 +1351,8 @@ private extension String {
 private extension Data {
 
     init(buffer: UnsafeBufferPointer<UInt8>) {
-        self.init(bytes: buffer.baseAddress!, count: buffer.count)
+        guard let baseAddress = buffer.baseAddress else { fatalError("nil buffer.baseAddress") }
+        self.init(bytes: baseAddress, count: buffer.count)
     }
 
 }
